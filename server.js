@@ -48,7 +48,7 @@ app.get("/generate", async (req, res) => {
   const host = req.get('host') || '';
   
 
-  if (host.includes('onrender.com') || host.includes('vercel.app') || host.includes('qr-file-collector')) {
+  if (host.includes('onrender.com') || host.includes('vercel.app') || host.includes('qr-file-collector') || host.includes('loca.lt') || host.includes('trycloudflare.com')) {
     uploadUrl = `https://${host}/qr/${id}`;
     isLocal = false;
   } else {
@@ -71,18 +71,22 @@ app.get("/upload/:id", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "upload.html"));
 });
 
-app.post("/upload/:id", upload.single("file"), (req, res) => {
+app.post("/upload/:id", upload.array("files"), (req, res) => {
   const id = req.params.id;
   if (!sessions[id]) sessions[id] = [];
   
-  const fileData = {
-    url: `/uploads/${req.file.filename}`,
-    name: req.file.originalname,
-    size: req.file.size,
-    uploadedAt: new Date().toLocaleString()
-  };
+  if (req.files) {
+    req.files.forEach(file => {
+      const fileData = {
+        url: `/uploads/${file.filename}`,
+        name: file.originalname,
+        size: file.size,
+        uploadedAt: new Date().toLocaleString()
+      };
+      sessions[id].push(fileData);
+    });
+  }
   
-  sessions[id].push(fileData);
   io.to(id).emit("filesUpdated", { files: sessions[id], total: sessions[id].length });
   res.json({ success: true });
 });

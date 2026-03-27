@@ -3,6 +3,7 @@
 <head>
     <title>QR File Collector</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -29,6 +30,7 @@
         h1 { 
             background: linear-gradient(135deg, #667eea, #764ba2);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
             font-size: 2.5rem;
             margin-bottom: 10px;
@@ -109,6 +111,7 @@
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <script>
         let currentId = null;
         const socket = io();
@@ -121,16 +124,18 @@
         .then(data => {
             document.getElementById('qrCode').src = data.qr;
             
-            
             const mode = data.isLocal ? 
                 '🌐 Local Network' : 
                 '🌍 Internet Sharing';
+                
+            window.uploadUrl = data.uploadUrl;
             
             document.querySelector('.instruction').innerHTML = `
                 <div style="font-size: 18px; margin-bottom: 15px;">
                     📱 <strong>${mode}</strong>
                 </div>
-                <div>Show QR → Anyone scans → files appear here!</div>
+                <div>Show QR or <button onclick="copyLink()" style="margin: 0; padding: 5px 15px; font-size: 14px; background: #667eea; box-shadow: none;">🔗 Copy Link</button></div>
+                <div style="margin-top: 5px">Anyone scans/clicks → files appear here!</div>
             `;
             
             currentId = data.id;
@@ -139,15 +144,57 @@
         });
 }
 
+        function showToast(text, type) {
+            Toastify({
+                text,
+                duration: 3000,
+                gravity: "top",
+                position: "center",
+                style: {
+                    background: type === 'success' ? "#10b981" : "#ef4444",
+                    borderRadius: "10px",
+                    fontWeight: "600",
+                    fontFamily: "system-ui, -apple-system, sans-serif"
+                }
+            }).showToast();
+        }
+
+        function copyLink() {
+            if (window.uploadUrl) {
+                navigator.clipboard.writeText(window.uploadUrl).then(() => {
+                    showToast('🔗 Link copied to clipboard!', 'success');
+                }).catch(() => {
+                    showToast('❌ Failed to copy link', 'error');
+                });
+            }
+        }
+
+        function getFileIcon(filename) {
+            const ext = filename.split('.').pop().toLowerCase();
+            const icons = {
+                pdf: '📄',
+                doc: '📝', docx: '📝', txt: '📝',
+                png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', svg: '🖼️',
+                mp4: '🎥', mov: '🎥', avi: '🎥',
+                mp3: '🎵', wav: '🎵',
+                zip: '🗜️', rar: '🗜️', tar: '🗜️', gz: '🗜️'
+            };
+            return icons[ext] || '📁';
+        }
+
         socket.on('filesUpdated', (data) => {
             const filesList = document.getElementById('filesList');
             filesList.innerHTML = `<h3>📁 Files Collected (${data.total}):</h3>`;
             data.files.forEach((file, i) => {
+                const icon = getFileIcon(file.name);
                 filesList.innerHTML += `
                     <div class="file">
-                        <div>
-                            <strong>${file.name}</strong><br>
-                            <small>${(file.size/1024).toFixed(1)}KB</small>
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            <span style="font-size: 2rem;">${icon}</span>
+                            <div>
+                                <strong>${file.name}</strong><br>
+                                <small>${(file.size/1024).toFixed(1)}KB</small>
+                            </div>
                         </div>
                         <a href="${file.url}" class="download-btn" download>⬇️ Download</a>
                     </div>

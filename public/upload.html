@@ -3,6 +3,7 @@
 <head>
     <title>File Upload</title> 
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
     <style>
         
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -28,6 +29,7 @@
         h1 { 
             background: linear-gradient(135deg, #667eea, #764ba2);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
             font-size: 2.5rem;  /* Bigger title */
             margin-bottom: 10px;
@@ -57,26 +59,52 @@
         .status.loading { background: #fff3cd; color: #856404; }
         .status.error { background: #f8d7da; color: #721c24; }
        input[type="file"] { display: none; }
+       .drag-overlay {
+           position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+           background: rgba(102, 126, 234, 0.9);
+           backdrop-filter: blur(10px);
+           z-index: 1000;
+           display: none; align-items: center; justify-content: center;
+           color: white; font-size: 3rem; font-weight: bold;
+           pointer-events: none;
+       }
+       .drag-overlay.active { display: flex; }
+       .progress-container {
+           width: 100%; background: #e1e5e9; border-radius: 10px;
+           margin-top: 20px; height: 12px; overflow: hidden; display: none;
+       }
+       .progress-bar {
+           height: 100%; background: linear-gradient(135deg, #667eea, #764ba2);
+           width: 0%; transition: width 0.2s ease;
+       }
     </style>
 </head>
 <body>
+    <div id="dragOverlay" class="drag-overlay">
+        Drop files anywhere to upload
+    </div>
     <div class="container">
-        <h1>📤 Drop File</h1>  <!-- ✅ SUPER CLEAN -->
-        <p style="color: #666; margin-bottom: 30px; font-size: 1.2rem;">Upload your document here</p>
+        <h1>📤 Drop Files</h1>  <!-- ✅ SUPER CLEAN -->
+        <p style="color: #666; margin-bottom: 30px; font-size: 1.2rem;">Upload your documents here</p>
 
         <div class="upload-area" id="uploadArea">
             <div class="upload-icon">☁️</div>
             <div style="font-size: 1.4rem; font-weight: 600; color: #333; margin-bottom: 10px;">
-                Drop file or tap here
+                Drop files or tap here
             </div>
             <div style="color: #888; font-size: 1rem;">PDF, Images, Documents</div>
-            <input type="file" id="fileInput">
+            <input type="file" id="fileInput" multiple>
+        </div>
+        
+        <div id="progressContainer" class="progress-container">
+            <div id="progressBar" class="progress-bar"></div>
         </div>
 
         <div id="status" class="status"></div>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <script>
         const url = window.location.pathname;
         const id = url.split('/').pop();  // Gets session from /qr/SESSION-ID or /upload/SESSION-ID
@@ -87,45 +115,88 @@
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
         const status = document.getElementById('status');
+        const dragOverlay = document.getElementById('dragOverlay');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
 
-        // Drag & drop + click events (SAME as before)
+        // Allow dropping anywhere on the window
+        window.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dragOverlay.classList.add('active');
+        });
+        window.addEventListener('dragleave', (e) => {
+            if (e.clientX === 0 && e.clientY === 0) { // Indicates drag left the window
+                dragOverlay.classList.remove('active');
+            }
+        });
+        window.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dragOverlay.classList.remove('active');
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                fileInput.files = e.dataTransfer.files;
+                uploadFile();
+            }
+        });
+
+        // Click to open file dialog and select files
         uploadArea.addEventListener('click', () => fileInput.click());
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('dragover');
-        });
-        uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
-            fileInput.files = e.dataTransfer.files;
-            uploadFile();
-        });
         fileInput.addEventListener('change', uploadFile);
+        
+        function showToast(text, type) {
+            Toastify({
+                text,
+                duration: 3000,
+                gravity: "top",
+                position: "center",
+                style: {
+                    background: type === 'success' ? "#10b981" : type === 'error' ? "#ef4444" : "#f59e0b",
+                    borderRadius: "10px",
+                    boxShadow: "0 10px 25px rgba(0,0,0,0.1)",
+                    fontWeight: "600",
+                    fontFamily: "system-ui, -apple-system, sans-serif"
+                }
+            }).showToast();
+        }
 
         function uploadFile() {
-            const file = fileInput.files[0];
-            if (!file) return;
+            const files = fileInput.files;
+            if (!files || files.length === 0) return;
 
             const formData = new FormData();
-            formData.append('file', file);
+            for (let i = 0; i < files.length; i++) {
+                formData.append('files', files[i]);
+            }
 
-            status.textContent = '⏳ Uploading...';
-            status.className = 'status loading show';
+            progressContainer.style.display = 'block';
+            progressBar.style.width = '0%';
+            
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', `/upload/${id}`, true);
 
-            fetch(`/upload/${id}`, { method: 'POST', body: formData })
-                .then(res => res.json())
-                .then(() => {
-                    status.textContent = '✅ Uploaded successfully!';
-                    status.className = 'status success show';
+            xhr.upload.onprogress = (event) => {
+                if (event.lengthComputable) {
+                    const percentComplete = (event.loaded / event.total) * 100;
+                    progressBar.style.width = percentComplete + '%';
+                }
+            };
+
+            xhr.onload = () => {
+                if (xhr.status === 200) {
+                    showToast('✅ Uploaded successfully!', 'success');
                     fileInput.value = '';
-                    setTimeout(() => status.classList.remove('show'), 3000);
-                })
-                .catch(() => {
-                    status.textContent = '❌ Upload failed. Try again.';
-                    status.className = 'status error show';
-                    setTimeout(() => status.classList.remove('show'), 3000);
-                });
+                    setTimeout(() => { progressContainer.style.display = 'none'; }, 1000);
+                } else {
+                    showToast('❌ Upload failed.', 'error');
+                    progressContainer.style.display = 'none';
+                }
+            };
+
+            xhr.onerror = () => {
+                showToast('❌ Network error during upload.', 'error');
+                progressContainer.style.display = 'none';
+            };
+
+            xhr.send(formData);
         }
     </script>
 </body>
